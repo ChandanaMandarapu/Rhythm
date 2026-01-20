@@ -8,7 +8,7 @@ console.log(`🌐 Rhythm Real-Data Engine`);
 console.log(`>> Connecting to Solana Mainnet...`);
 console.log(`>> WebSocket Server: ws://localhost:${PORT}`);
 
-// Helius free RPC endpoint (you can replace with your own)
+
 const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
 
 wss.broadcast = function broadcast(data) {
@@ -20,8 +20,16 @@ wss.broadcast = function broadcast(data) {
 };
 
 // Track vote accounts we're monitoring
-const KNOWN_VALIDATORS = new Set();
+const KNOWN_VALIDATORS = [];
 let currentSlot = 0;
+let leaderRegion = 'US-EAST';
+
+const REGIONS = ['US-EAST', 'EU-CENTRAL', 'ASIA-NORTHEAST', 'US-WEST', 'EU-WEST'];
+
+function getRegionForValidator(pubkey) {
+    const charCode = pubkey.charCodeAt(0);
+    return REGIONS[charCode % REGIONS.length];
+}
 
 // Fetch current slot from Solana
 async function getCurrentSlot() {
@@ -116,12 +124,13 @@ async function start() {
 
         // Store validator info
         allValidators.forEach(v => {
-            KNOWN_VALIDATORS.add({
+            KNOWN_VALIDATORS.push({
                 pubkey: v.nodePubkey,
                 votePubkey: v.votePubkey,
                 commission: v.commission,
                 lastVote: v.lastVote,
-                activatedStake: v.activatedStake
+                activatedStake: v.activatedStake,
+                region: getRegionForValidator(v.nodePubkey)
             });
         });
 
@@ -132,32 +141,39 @@ async function start() {
 
                 if (newSlot > currentSlot) {
                     currentSlot = newSlot;
+                    // Rotate leader region randomly per slot
+                    leaderRegion = REGIONS[Math.floor(Math.random() * REGIONS.length)];
+                    console.log(`>> New Slot: ${currentSlot} | Leader Region: ${leaderRegion}`);
 
-                    // Generate vote events for validators
-                    // Sample 50 validators per slot (realistic voting pattern)
-                    const validatorArray = Array.from(KNOWN_VALIDATORS);
+                    // Sample 120 validators per slot for better information density
                     const votingValidators = [];
-
-                    for (let i = 0; i < 50; i++) {
-                        const randomValidator = validatorArray[Math.floor(Math.random() * validatorArray.length)];
+                    for (let i = 0; i < 120; i++) {
+                        const randomValidator = KNOWN_VALIDATORS[Math.floor(Math.random() * KNOWN_VALIDATORS.length)];
                         votingValidators.push(randomValidator);
                     }
 
-                    // Broadcast votes
+                    // Broadcast votes with GEOGRAPHIC JITTER
                     votingValidators.forEach((validator, i) => {
+                        // Calculate geographic distance latency
+                        const isSameRegion = validator.region === leaderRegion;
+                        const geoLatency = isSameRegion ? 50 : 250;
+                        const emissionJitter = Math.random() * 100;
+
                         setTimeout(() => {
                             const vote = {
                                 slot: currentSlot,
                                 validator_pubkey: validator.pubkey,
                                 vote_hash: `Vote-${currentSlot}-${i}`,
-                                weight: validator.activatedStake || Math.floor(Math.random() * 50000) + 1000,
-                                is_fast_path: Math.random() < 0.85, // Real Solana is ~85% efficient
+                                weight: validator.activatedStake || 5000,
+                                // Fast Path if same region or lucky propagation
+                                is_fast_path: isSameRegion ? Math.random() < 0.95 : Math.random() < 0.3,
                                 timestamp: Date.now(),
+                                region: validator.region,
                                 source: 'REAL_SOLANA_DATA'
                             };
 
                             wss.broadcast(JSON.stringify(vote));
-                        }, i * 8); // 8ms between votes
+                        }, geoLatency + emissionJitter);
                     });
                 }
             } catch (error) {
