@@ -1,112 +1,227 @@
-// 🎹 RHYTHM GENERATIVE PIANO: "Gymnopédie Mode"
-// Procedurally generates a classical-style minimalist background loop
+// 🎹 Rhythm soul lies here
 export class AlpenglowAudio {
-    private audioContext: AudioContext;
-    private masterGain: GainNode;
-    private pianoScale = [196.00, 220.00, 246.94, 261.63, 293.66, 329.63, 392.00, 440.00]; // G Major / Pentatonic mix
+    private ctx: AudioContext | null = null;
+    private masterGain: GainNode | null = null;
+
+    // Drone
+    private healthDrone: OscillatorNode | null = null;
+    private healthGain: GainNode | null = null;
+
+    // MP3 background
+    private bgBuffer: AudioBuffer | null = null;
+    private bgSource: AudioBufferSourceNode | null = null;
     private isPlayingBackground = false;
-    private loopTimeout: any = null;
+
+    private pianoScale = [196.0, 220.0, 246.94, 261.63, 293.66, 329.63, 392.0, 440.0];
+    private lastPingTime = 0;
 
     constructor() {
-        this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        this.masterGain = this.audioContext.createGain();
-        this.masterGain.gain.value = 0.3;
-        this.masterGain.connect(this.audioContext.destination);
+        console.log("🎹 AUDIO ENGINE INSTANTIATED");
     }
 
+    // ---------------- INIT ----------------
+    private init() {
+        if (this.ctx) return;
+
+        console.log("🎹 INITIALIZING AUDIO CONTEXT...");
+        const AudioContextClass =
+            window.AudioContext || (window as any).webkitAudioContext;
+        this.ctx = new AudioContextClass();
+
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.value = 0.5;
+        this.masterGain.connect(this.ctx.destination);
+
+        console.log("✅ AUDIO CONTEXT READY:", this.ctx.state);
+    }
+
+    // ---------------- RESUME ----------------
     async resume() {
-        if (this.audioContext.state === 'suspended') {
-            await this.audioContext.resume();
+        this.init();
+        if (!this.ctx) return;
+
+        // 🔓 unlock audio
+        const buffer = this.ctx.createBuffer(1, 1, 22050);
+        const src = this.ctx.createBufferSource();
+        src.buffer = buffer;
+        src.connect(this.ctx.destination);
+        src.start(0);
+
+        if (this.ctx.state === "suspended") {
+            await this.ctx.resume();
+        }
+
+        this.playPianoNote(880, 0.2, 0.4);
+        this.startHealthDrone();
+
+        // Ensure MP3 is loaded once
+        if (!this.bgBuffer) {
+            await this.loadBackgroundMusic();
         }
         this.startBackgroundMusic();
     }
 
-    // --- PIANO SYNTHESIS ENGINE ---
-    private playPianoNote(freq: number, volume = 0.1, duration = 1.0) {
-        const now = this.audioContext.currentTime;
+    // ---------------- MP3 LOADER ----------------
+    private async loadBackgroundMusic() {
+        if (!this.ctx || this.bgBuffer) return;
 
-        // Additive harmonics for piano timbre
-        const harmonics = [1, 2, 3.01, 4, 5, 6];
-        const weights = [1, 0.4, 0.2, 0.1, 0.05, 0.02];
+        console.log("🎵 LOADING BACKGROUND MP3...");
+        try {
+            // Check both root and audio subfolder for robustness
+            const urls = [
+                "/piano-waltz-elegant-and-graceful-instrumental-music-285601.mp3",
+                "/audio/bg_music.mp3"
+            ];
 
-        harmonics.forEach((h, i) => {
-            const osc = this.audioContext.createOscillator();
-            const gain = this.audioContext.createGain();
+            let response: Response | null = null;
+            for (const url of urls) {
+                const res = await fetch(url);
+                if (res.ok) {
+                    response = res;
+                    break;
+                }
+            }
 
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq * h, now);
+            if (!response) throw new Error("Could not find music file");
 
-            gain.gain.setValueAtTime(0, now);
-            gain.gain.linearRampToValueAtTime(volume * weights[i], now + 0.01);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + duration / h);
+            const arrayBuffer = await response.arrayBuffer();
+            this.bgBuffer = await this.ctx.decodeAudioData(arrayBuffer);
 
-            osc.connect(gain);
-            gain.connect(this.masterGain);
-
-            osc.start(now);
-            osc.stop(now + duration + 0.5);
-        });
+            console.log("✅ MP3 LOADED SUCCESSFULLY");
+        } catch (e) {
+            console.warn("⚠️ MP3 LOAD FAILED:", e);
+        }
     }
 
-    // --- GENERATIVE CLASSICAL ENGINE ---
+    // ---------------- PLAY MP3 ----------------
     private startBackgroundMusic() {
-        if (this.isPlayingBackground) return;
+        if (!this.ctx || !this.bgBuffer || this.isPlayingBackground || this.ctx.state !== "running") return;
+
+        console.log("🎵 STARTING BACKGROUND MUSIC");
         this.isPlayingBackground = true;
-        this.runMusicLoop(0);
+
+        this.bgSource = this.ctx.createBufferSource();
+        this.bgSource.buffer = this.bgBuffer;
+        this.bgSource.loop = true;
+
+        const gain = this.ctx.createGain();
+        gain.gain.value = 0.35;
+
+        this.bgSource.connect(gain);
+        gain.connect(this.masterGain!);
+
+        this.bgSource.start(0);
     }
 
     stopBackgroundMusic() {
         this.isPlayingBackground = false;
-        if (this.loopTimeout) clearTimeout(this.loopTimeout);
+        if (this.bgSource) {
+            try {
+                this.bgSource.stop();
+                this.bgSource.disconnect();
+            } catch { }
+            this.bgSource = null;
+        }
     }
 
-    private runMusicLoop(step: number) {
-        if (!this.isPlayingBackground) return;
+    // ---------------- DRONE ----------------
+    private startHealthDrone() {
+        if (!this.ctx || !this.masterGain || this.healthDrone) return;
 
-        // Classical Progression (Gmaj7 -> Cmaj7 -> Am7 -> D7)
-        const progressions = [
-            [196.00, 246.94, 293.66, 370.00], // Gmaj7
-            [261.63, 329.63, 392.00, 493.88], // Cmaj7
-            [220.00, 261.63, 329.63, 392.00], // Am7
-            [146.83, 220.00, 293.66, 349.23]  // D7
-        ];
+        this.healthDrone = this.ctx.createOscillator();
+        this.healthGain = this.ctx.createGain();
 
-        const chordIdx = Math.floor(step / 4) % progressions.length;
-        const subStep = step % 4;
+        this.healthDrone.type = "sawtooth";
+        this.healthDrone.frequency.value = 40;
+        this.healthGain.gain.value = 0.03; // Even subtler foundation
 
-        // Play chord notes (Arpeggiated)
-        if (subStep === 0) {
-            progressions[chordIdx].forEach((f, i) => {
-                setTimeout(() => this.playPianoNote(f, 0.05, 3.0), i * 150);
-            });
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 150; // Darker filter
+
+        this.healthDrone.connect(this.healthGain);
+        this.healthGain.connect(filter);
+        filter.connect(this.masterGain);
+
+        this.healthDrone.start();
+    }
+
+    updateNetworkStats(participation: number) {
+        if (!this.healthDrone || !this.healthGain || !this.ctx) return;
+
+        const t = this.ctx.currentTime;
+        if (participation < 0.66) {
+            this.healthDrone.detune.linearRampToValueAtTime(
+                (0.66 - participation) * 500,
+                t + 0.1
+            );
+            this.healthGain.gain.linearRampToValueAtTime(0.08, t + 0.1);
+        } else {
+            this.healthDrone.detune.linearRampToValueAtTime(0, t + 0.1);
+            this.healthGain.gain.linearRampToValueAtTime(0.03, t + 0.1);
+        }
+    }
+
+    // ---------------- PIANO ----------------
+    private playPianoNote(freq: number, volume = 0.1, duration = 1) {
+        if (!this.ctx || !this.masterGain || this.ctx.state !== "running") return;
+        const now = this.ctx.currentTime;
+
+        // Optimization: Reduce harmonics from 5 to 3 for performance
+        const harmonics = [1, 2, 3];
+        harmonics.forEach((h, i) => {
+            const osc = this.ctx!.createOscillator();
+            const gain = this.ctx!.createGain();
+
+            osc.type = "sine";
+            osc.frequency.value = freq * h;
+
+            gain.gain.setValueAtTime(volume / (i + 1), now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+            osc.connect(gain);
+            gain.connect(this.masterGain!);
+
+            osc.start(now);
+            osc.stop(now + duration + 0.1);
+        });
+    }
+
+    // ---------------- STOP ALL ----------------
+    stopAll() {
+        console.log("🎹 AUDIO SYSTEM SUSPENDING...");
+        this.stopBackgroundMusic();
+
+        if (this.healthDrone) {
+            try {
+                this.healthDrone.stop();
+                this.healthDrone.disconnect();
+            } catch { }
+            this.healthDrone = null;
         }
 
-        // Play subtle random melody (Classical vibe)
-        if (Math.random() > 0.4) {
-            const melodyNote = this.pianoScale[Math.floor(Math.random() * this.pianoScale.length)];
-            this.playPianoNote(melodyNote * 2, 0.03, 1.5);
-        }
-
-        // Schedule next beat (very slow, 1.5s per beat - like Satie)
-        this.loopTimeout = setTimeout(() => this.runMusicLoop(step + 1), 1500);
-    }
-
-    // Fast Path: Bright accent note (harmonizes with current scale)
-    playFastPath() {
-        const note = this.pianoScale[Math.floor(Math.random() * this.pianoScale.length)];
-        this.playPianoNote(note * 2, 0.08, 0.8);
-    }
-
-    playSlowPath() {
-        this.playPianoNote(98.00, 0.05, 2.0); // Low G
+        this.ctx?.suspend().then(() => {
+            console.log("✅ AUDIO CONTEXT SUSPENDED");
+        });
     }
 
     playBlockFinalized(isFastPath: boolean) {
-        if (isFastPath) this.playFastPath();
-        else this.playSlowPath();
+        if (!this.ctx || !this.masterGain || this.ctx.state !== "running") return;
+
+        // 🛡️ PERFORMANCE SHIELD: Throttle pings to 100ms cooldown
+        const now = Date.now();
+        if (now - this.lastPingTime < 100) return;
+        this.lastPingTime = now;
+
+        if (isFastPath) {
+            const note = this.pianoScale[Math.floor(Math.random() * this.pianoScale.length)];
+            this.playPianoNote(note * 2, 0.12, 0.6);
+        } else {
+            this.playPianoNote(98.00, 0.08, 1.5);
+        }
     }
 
-    setVolume(volume: number) {
-        this.masterGain.gain.value = volume;
+    setVolume(v: number) {
+        if (this.masterGain) this.masterGain.gain.value = v;
     }
 }
