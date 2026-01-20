@@ -21,7 +21,7 @@ let slot = 20000;
 setInterval(() => {
   slot++;
   const isFastPath = Math.random() < 0.8; // 80% chance of fast path
-  
+
   // console.log(`[BLOCK ${slot}] Proposing... FastPath: ${isFastPath}`);
 
   // Burst of 50 votes
@@ -38,7 +38,9 @@ setInterval(() => {
       vote_hash: `Hash-${Math.random().toString(36).substring(7)}`,
       weight: Math.floor(Math.random() * 50000) + 1000,
       is_fast_path: isFastPath, // All votes in this burst tend to agree on the path
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      region: ['US-EAST', 'EU-CENTRAL', 'ASIA-NORTHEAST'][Math.floor(Math.random() * 3)],
+      source: 'SIMULATOR'
     };
 
     wss.broadcast(JSON.stringify(vote));
