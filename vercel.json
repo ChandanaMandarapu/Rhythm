@@ -1,8 +1,0 @@
-{
-  "buildCommand": "cd rhythm_web && npm run build",
-  "outputDirectory": "rhythm_web/.next",
-  "devCommand": "cd rhythm_web && npm run dev",
-  "installCommand": "cd rhythm_web && npm install",
-  "framework": "nextjs",
-  "regions": ["iad1"]
-}
