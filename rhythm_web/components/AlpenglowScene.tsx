@@ -353,7 +353,7 @@ export default function AlpenglowScene() {
     const [mounted, setMounted] = useState(false);
     useEffect(() => { setMounted(true); }, []);
 
-    const [dataMode, setDataMode] = useState<'simulation' | 'real'>('simulation');
+    const [dataMode, setDataMode] = useState<'simulation' | 'real'>('real');
     const [isConnected, setIsConnected] = useState(false);
     const [isFrozen, setIsFrozen] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
@@ -377,7 +377,10 @@ export default function AlpenglowScene() {
             if (wasClosedByCleanup) return;
 
             const wsPort = dataMode === 'real' ? 3031 : 3030;
-            const wsUrl = `ws://localhost:${wsPort}`;
+            const productionWs = "wss://rhythm-data-engine-final-production.up.railway.app";
+            const wsUrl = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
+                ? `ws://localhost:${wsPort}`
+                : productionWs;
 
             // 🧹 PURGE STALE CONNECTION
             if (wsRef.current) {
